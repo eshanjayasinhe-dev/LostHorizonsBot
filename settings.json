@@ -1,13 +1,13 @@
 {
   "name": "AFK Bot",
   "bot-account": {
-    "username": "Hey_Sexy!",
+    "username": "ORVYTHMC",
     "password": "",
     "type": "offline"
   },
   "server": {
-    "ip": "LostHorizons.aternos.me",
-    "port": 17402,
+    "ip": "orvythmc.sadhost.com",
+    "port": 27778,
     "version": "1.20.1",
     "try-creative": false
   },
@@ -19,15 +19,14 @@
   },
   "utils": {
     "auto-auth": {
-      "enabled": false,
+      "enabled": true,
       "password": "DarkZyroxback"
     },
     "anti-afk": {
       "enabled": true,
       "sneak": true
     },
-
-   "chat-messages": {
+    "chat-messages": {
       "enabled": true,
       "repeat": true,
       "repeat-delay": 120,
@@ -36,7 +35,7 @@
         "Subscribe to SoloPlayz!",
         "Want Cheap Premium Server? https://discord.gg/VRMUnDkf95"
       ]
-   },
+    },
     "chat-log": true,
     "auto-reconnect": true,
     "auto-reconnect-delay": 2000,

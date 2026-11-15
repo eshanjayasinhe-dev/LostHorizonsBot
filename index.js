@@ -4,85 +4,8 @@ const { addLog, getLogs } = require("./logger");
 const mineflayer = require("mineflayer");
 const { Movements, pathfinder, goals } = require("mineflayer-pathfinder");
 const { GoalBlock } = goals;
-const fs = require("fs");
-const path = require("path");
+const config = require("./settings.json");
 const express = require("express");
-
-// ============================================================
-// CONFIG - everything is driven by settings.json
-// Missing keys fall back to the defaults below; a broken file
-// gives a clear error instead of a cryptic crash.
-// ============================================================
-const DEFAULT_CONFIG = {
-  name: "AFK Bot",
-  "bot-account": { username: "AFKBot", password: "", type: "offline" },
-  server: { ip: "localhost", port: 25565, version: "", "try-creative": false },
-  position: { enabled: false, x: 0, y: 64, z: 0 },
-  utils: {
-    "auto-auth": { enabled: false, password: "" },
-    "anti-afk": { enabled: false, sneak: false },
-    "chat-log": true,
-    "auto-reconnect": true,
-    "auto-reconnect-delay": 3000,
-    "max-reconnect-delay": 30000,
-  },
-  movement: {
-    enabled: true,
-    "circle-walk": { enabled: false, radius: 4, speed: 3000 },
-    "look-around": { enabled: false, interval: 5000 },
-    "random-jump": { enabled: false, interval: 10000 },
-  },
-  modules: {
-    avoidMobs: false,
-    combat: false,
-    beds: false,
-    chat: false,
-    "console-commands": true,
-  },
-  combat: { "attack-mobs": false, "auto-eat": false },
-  beds: { "pick-up-day": false, "place-night": false },
-  discord: {
-    enabled: false,
-    webhookUrl: "",
-    events: { connect: true, disconnect: true, chat: false },
-  },
-  chat: { respond: false },
-};
-
-function deepMerge(base, override) {
-  if (
-    typeof base !== "object" || base === null || Array.isArray(base) ||
-    typeof override !== "object" || override === null || Array.isArray(override)
-  ) {
-    return override === undefined ? base : override;
-  }
-  const out = { ...base };
-  for (const key of Object.keys(override)) {
-    out[key] = key in base ? deepMerge(base[key], override[key]) : override[key];
-  }
-  return out;
-}
-
-function loadConfig() {
-  const file = path.join(__dirname, "settings.json");
-  let user;
-  try {
-    user = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch (e) {
-    console.error(`[Config] Could not load settings.json: ${e.message}`);
-    process.exit(1);
-  }
-  const cfg = deepMerge(DEFAULT_CONFIG, user);
-  const port = Number(cfg.server.port);
-  if (!cfg.server.ip || !Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error("[Config] settings.json: server.ip / server.port are invalid.");
-    process.exit(1);
-  }
-  cfg.server.port = port;
-  return cfg;
-}
-
-const config = loadConfig();
 const http = require("http");
 const https = require("https");
 
@@ -217,11 +140,11 @@ app.get('/', (req, res) => {
         </style>
       </head>
       <body>
-        <main role="main" aria-label="${config.name} Dashboard">
+        <main role="main" aria-label="AFK Bot Dashboard">
 
           <header>
-            <h1>${config.name}</h1>
-            <p>Minecraft ${config.server.version || "auto"} &middot; Live status</p>
+            <h1>AFK Bot Dashboard</h1>
+            <p>Minecraft server bot &middot; Live status</p>
           </header>
 
           <section
@@ -252,7 +175,7 @@ app.get('/', (req, res) => {
               </div>
               <div class="stat-card">
                 <dt>Server address</dt>
-                <dd>${config.server.ip}:${config.server.port}</dd>
+                <dd>${config.server.ip}</dd>
                 <p class="stat-detail">Minecraft server hostname</p>
               </div>
             </dl>
@@ -490,7 +413,7 @@ app.get("/tutorial", (req, res) => {
 
           <header>
             <h1>Setup Guide</h1>
-            <p>Get ${config.name} running in under 15 minutes</p>
+            <p>Get your AFK bot running in under 15 minutes</p>
           </header>
 
           <div class="step-card">
@@ -532,7 +455,7 @@ app.get("/tutorial", (req, res) => {
           </div>
 
           <footer>
-            <p>${config.name} &middot; ${config.server.ip}</p>
+            <p>AFK Bot Dashboard &middot; ${config.name}</p>
           </footer>
         </main>
       </body>
@@ -873,7 +796,7 @@ app.get("/logs", (req, res) => {
           </div>
 
           <footer>
-            <p>${config.name} &middot; ${config.server.ip}</p>
+            <p>AFK Bot Dashboard &middot; ${config.name}</p>
           </footer>
         </main>
 
@@ -1066,15 +989,11 @@ app.post("/stop", (req, res) => {
   if (!botRunning) return res.json({ success: false, msg: "Already stopped" });
 
   botRunning = false;
-  clearBotTimeouts();
-  isReconnecting = false;
 
   if (bot) {
-    bot.removeAllListeners();
-    try { bot.end(); } catch (_) {}
+    bot.end();
     bot = null;
   }
-  botState.connected = false;
 
   clearAllIntervals();
   addLog("[Control] Bot stopped");
@@ -1085,13 +1004,6 @@ app.post("/stop", (req, res) => {
 app.post("/command", express.json(), (req, res) => {
   const cmd = (req.body.command || "").trim();
   if (!cmd) return res.json({ success: false, msg: "Empty command." });
-
-  if (!config.modules["console-commands"]) {
-    return res.json({
-      success: false,
-      msg: 'Console commands are disabled (settings.json: modules."console-commands").',
-    });
-  }
 
   addLog(`[Console] > ${cmd}`);
 
@@ -1439,7 +1351,7 @@ function createBot() {
         );
       }
 
-      // Reconnect (respects utils.auto-reconnect and dashboard Stop)
+      // ALWAYS reconnect — bot must never leave the server
       scheduleReconnect();
     });
 
@@ -1457,12 +1369,6 @@ function createBot() {
 
 function scheduleReconnect() {
   clearBotTimeouts();
-
-  if (!botRunning) return; // stopped from the dashboard - stay stopped
-  if (!config.utils["auto-reconnect"]) {
-    addLog("[Bot] auto-reconnect is disabled in settings.json - not reconnecting.");
-    return;
-  }
 
   // FIX: don't stack reconnect if already waiting
   if (isReconnecting) {
@@ -1538,13 +1444,6 @@ function initializeModules(bot, mcData, defaultMove) {
     }, 10000);
   }
 
-  // ---------- CHAT LOG ----------
-  if (config.utils["chat-log"]) {
-    bot.on("chat", (username, message) => {
-      addLog(`[Chat] <${username}> ${message}`);
-    });
-  }
-
   // ---------- CHAT MESSAGES ----------
   if (config.utils["chat-messages"] && config.utils["chat-messages"].enabled) {
     const messages = config.utils["chat-messages"].messages;
@@ -1567,38 +1466,21 @@ function initializeModules(bot, mcData, defaultMove) {
   }
 
   // ---------- MOVE TO POSITION ----------
-  // position.enabled: walk to x/y/z first. If circle-walk is also enabled it
-  // starts once the bot arrives (or gives up on the position), then circles there.
-  const circleOn = !!(config.movement && config.movement.enabled !== false &&
-    config.movement["circle-walk"] && config.movement["circle-walk"].enabled);
-  let circleStarted = false;
-  const beginCircle = (center) => {
-    if (!circleOn || circleStarted) return;
-    circleStarted = true;
-    startCircleWalk(bot, defaultMove, center);
-  };
-
-  if (config.position && config.position.enabled) {
-    const target = new GoalBlock(config.position.x, config.position.y, config.position.z);
+  // FIX: only use position goal if circle-walk is NOT enabled (they fight over pathfinder)
+  if (
+    config.position &&
+    config.position.enabled &&
+    !(
+      config.movement &&
+      config.movement["circle-walk"] &&
+      config.movement["circle-walk"].enabled
+    )
+  ) {
     bot.pathfinder.setMovements(defaultMove);
-    bot.pathfinder.setGoal(target);
-    addLog(`[Position] Navigating to ${config.position.x}, ${config.position.y}, ${config.position.z}...`);
-
-    const anchor = { x: config.position.x, z: config.position.z };
-    bot.once("goal_reached", () => {
-      addLog("[Position] Reached configured position.");
-      beginCircle(anchor);
-    });
-    // Unreachable / mid-air target: don't leave the bot idle forever
-    setTimeout(() => {
-      if (circleOn && !circleStarted && bot && botState.connected) {
-        addLog("[Position] Could not reach configured position in 60s - circling where I am.");
-        bot.pathfinder.setGoal(null);
-        beginCircle(null);
-      }
-    }, 60000);
-  } else {
-    beginCircle(null);
+    bot.pathfinder.setGoal(
+      new GoalBlock(config.position.x, config.position.y, config.position.z),
+    );
+    addLog("[Position] Navigating to configured position...");
   }
 
   // ---------- ANTI-AFK ----------
@@ -1643,13 +1525,9 @@ function initializeModules(bot, mcData, defaultMove) {
             try {
               bot.setControlState("sneak", true);
               setTimeout(() => {
-                count--;
-                // keep sneaking afterwards if anti-afk.sneak is on in settings
                 if (bot && typeof bot.setControlState === "function")
-                  bot.setControlState(
-                    "sneak",
-                    count <= 0 && !!config.utils["anti-afk"].sneak,
-                  );
+                  bot.setControlState("sneak", false);
+                count--;
                 setTimeout(doTeabag, 150);
               }, 150);
             } catch (e) {}
@@ -1705,18 +1583,37 @@ function initializeModules(bot, mcData, defaultMove) {
   }
 
   // ---------- MOVEMENT MODULES ----------
-  // (circle-walk is started in MOVE TO POSITION above)
+  // FIX: check top-level movement.enabled flag
   if (config.movement && config.movement.enabled !== false) {
-    if (config.movement["random-jump"] && config.movement["random-jump"].enabled) {
+    // FIX: circle-walk and random-jump both jump - only run one jumping mechanism
+    // random-jump is skipped if anti-afk jump is handled elsewhere; we only use random-jump here
+    if (
+      config.movement["circle-walk"] &&
+      config.movement["circle-walk"].enabled
+    ) {
+      startCircleWalk(bot, defaultMove);
+    }
+    // FIX: only run random-jump if circle-walk is NOT running (circle-walk also keeps bot moving)
+    if (
+      config.movement["random-jump"] &&
+      config.movement["random-jump"].enabled &&
+      !(
+        config.movement["circle-walk"] && config.movement["circle-walk"].enabled
+      )
+    ) {
       startRandomJump(bot);
     }
-    if (config.movement["look-around"] && config.movement["look-around"].enabled) {
+    if (
+      config.movement["look-around"] &&
+      config.movement["look-around"].enabled
+    ) {
       startLookAround(bot);
     }
   }
 
   // ---------- CUSTOM MODULES ----------
-  if (config.modules.avoidMobs) {
+  // FIX: avoidMobs AND combatModule conflict - if combat is enabled, don't run avoidMobs at the same time
+  if (config.modules.avoidMobs && !config.modules.combat) {
     avoidMobs(bot);
   }
   if (config.modules.combat) {
@@ -1735,12 +1632,9 @@ function initializeModules(bot, mcData, defaultMove) {
 // ============================================================
 // MOVEMENT HELPERS
 // ============================================================
-function startCircleWalk(bot, defaultMove, center) {
+function startCircleWalk(bot, defaultMove) {
   const radius = config.movement["circle-walk"].radius;
   let angle = 0;
-  // Fixed centre (configured position) or, if none, the spot where it started
-  const cx = center ? center.x : bot.entity.position.x;
-  const cz = center ? center.z : bot.entity.position.z;
   let lastPathTime = 0;
 
   addInterval(() => {
@@ -1749,8 +1643,8 @@ function startCircleWalk(bot, defaultMove, center) {
     if (now - lastPathTime < 2000) return;
     lastPathTime = now;
     try {
-      const x = cx + Math.cos(angle) * radius;
-      const z = cz + Math.sin(angle) * radius;
+      const x = bot.entity.position.x + Math.cos(angle) * radius;
+      const z = bot.entity.position.z + Math.sin(angle) * radius;
       bot.pathfinder.setMovements(defaultMove);
       bot.pathfinder.setGoal(
         new GoalBlock(
@@ -1806,9 +1700,6 @@ function startLookAround(bot) {
 // CUSTOM MODULES
 // ============================================================
 
-// Mineflayer labels mobs as "hostile" (or "mob" on older data)
-const isHostile = (e) => e.type === "hostile" || e.type === "mob";
-
 // Avoid mobs/players
 // FIX: e.username only exists on players; use e.name for mobs - now handled properly
 function avoidMobs(bot) {
@@ -1823,7 +1714,7 @@ function avoidMobs(bot) {
     try {
       const entities = Object.values(bot.entities).filter(
         (e) =>
-          isHostile(e) ||
+          e.type === "mob" ||
           (e.type === "player" && e.username !== bot.username),
       );
       for (const e of entities) {
@@ -1883,7 +1774,7 @@ function combatModule(bot, mcData) {
       // Pick a new target
       const mobs = Object.values(bot.entities).filter(
         (e) =>
-          isHostile(e) &&
+          e.type === "mob" &&
           e.position &&
           bot.entity.position.distanceTo(e.position) < 4,
       );
@@ -1966,7 +1857,6 @@ function chatModule(bot) {
     if (!bot || username === bot.username) return;
 
     try {
-
       // FIX: send chat events to Discord if enabled
       if (
         config.discord &&
@@ -2004,7 +1894,6 @@ const rl = readline.createInterface({
 });
 
 rl.on("line", (line) => {
-  if (!config.modules["console-commands"]) return;
   if (!bot || !botState.connected) {
     addLog("[Console] Bot not connected");
     return;
@@ -2056,7 +1945,7 @@ function sendDiscordWebhook(content, color = 0x0099ff) {
         description: content,
         color: color,
         timestamp: new Date().toISOString(),
-        footer: { text: config.name },
+        footer: { text: "Slobos AFK Bot" },
       },
     ],
   });
@@ -2178,11 +2067,10 @@ process.on("SIGINT", () => {
 // START THE BOT
 // ============================================================
 addLog("=".repeat(50));
-addLog(`  ${config.name}`);
+addLog("  Minecraft AFK Bot v2.5 - Bug-Fixed Edition");
 addLog("=".repeat(50));
 addLog(`Server: ${config.server.ip}:${config.server.port}`);
-addLog(`Version: ${config.server.version || "auto-detect"}`);
-addLog(`Account: ${config["bot-account"].username} (${config["bot-account"].type})`);
+addLog(`Version: ${config.server.version}`);
 addLog(
   `Auto-Reconnect: ${config.utils["auto-reconnect"] ? "Enabled" : "Disabled"}`,
 );

@@ -1,8 +1,7 @@
 const logs = [];
 
-function addLog(...args) {
+function addLog(message) {
   const time = new Date().toLocaleTimeString();
-  const message = args.join(" ");
   const formatted = `[${time}] ${message}`;
 
   console.log(formatted); // still goes to Render logs
